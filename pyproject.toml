@@ -1,0 +1,14 @@
+[tool.uv.workspace]
+members = ["libs/cnpj_core", "etl"]
+
+[tool.pytest.ini_options]
+testpaths = ["libs/cnpj_core/tests", "etl/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # textos em português com acentos/travessões

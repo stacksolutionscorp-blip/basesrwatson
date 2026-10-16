@@ -1,0 +1,77 @@
+name: cnpj-intel
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cnpj}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cnpj}
+      POSTGRES_DB: ${POSTGRES_DB:-cnpj}
+    # Ajuste conforme a RAM do servidor (valores para ~16 GB).
+    command: >
+      postgres
+      -c shared_buffers=${PG_SHARED_BUFFERS:-4GB}
+      -c effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-10GB}
+      -c work_mem=${PG_WORK_MEM:-64MB}
+      -c maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-1GB}
+      -c max_wal_size=16GB
+      -c checkpoint_timeout=30min
+      -c max_parallel_workers_per_gather=4
+      -c max_parallel_maintenance_workers=4
+      -c random_page_cost=1.1
+      -c pg_trgm.similarity_threshold=0.3
+    shm_size: 1g
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-1gb}", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  etl:
+    build:
+      context: .
+      dockerfile: etl/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cnpj}:${POSTGRES_PASSWORD:-cnpj}@postgres:5432/${POSTGRES_DB:-cnpj}
+      NOMINATIM_URL: ${NOMINATIM_URL:-http://nominatim:8080}
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Geocodificador próprio (extrato Brasil do OSM). Opcional:
+  #   docker compose --profile geo up -d nominatim
+  # A importação inicial leva algumas horas e ocupa ~100 GB.
+  nominatim:
+    profiles: ["geo"]
+    image: mediagis/nominatim:4.5
+    environment:
+      PBF_URL: https://download.geofabrik.de/south-america/brazil-latest.osm.pbf
+      REPLICATION_URL: https://download.geofabrik.de/south-america/brazil-updates/
+      IMPORT_STYLE: address
+      THREADS: ${NOMINATIM_THREADS:-4}
+      NOMINATIM_PASSWORD: ${NOMINATIM_PASSWORD:-nominatim}
+    shm_size: 1g
+    ports:
+      - "${NOMINATIM_PORT:-8080}:8080"
+    volumes:
+      - nominatim-data:/var/lib/postgresql/16/main
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  nominatim-data:
