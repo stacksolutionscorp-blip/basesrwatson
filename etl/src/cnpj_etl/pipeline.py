@@ -7,11 +7,11 @@ from pathlib import Path
 
 import httpx
 
-from cnpj_etl import discover, download, finalize, load
+from cnpj_etl import diff, discover, download, finalize, load
 from cnpj_etl.config import Settings
 from cnpj_etl.db import NEW, connect, init_db
 from cnpj_etl.layouts import DATASETS, dataset_for
-from cnpj_etl.runlog import RunLog, last_success
+from cnpj_etl.runlog import RunLog, already_imported
 
 log = logging.getLogger("cnpj_etl")
 
@@ -50,7 +50,7 @@ def run(
                 release = discover.latest_release(client, settings.rf_base_url)
             paths = None
 
-        if not force and last_success(logconn) == release.referencia:
+        if not force and already_imported(logconn, release.referencia):
             log.info("referência %s já importada; nada a fazer", release.referencia)
             return RunResult(release.referencia, "skipped", {})
 
@@ -80,6 +80,12 @@ def run(
                 counts |= finalize.check_counts(conn, settings.min_row_ratio)  # pós-dedup
             with runlog.step("swap"):
                 finalize.swap(conn, release.referencia)
+            try:
+                with runlog.step("diff") as st:
+                    st.linhas, queued = diff.detect_changes(conn, release.referencia)
+                    log.info("%s alterações em CNPJs monitorados, %s webhooks enfileirados", st.linhas, queued)
+            except Exception:  # a base nova já está no ar; a falha fica registrada na etapa
+                log.exception("falha ao detectar alterações")
 
             if source_dir is None and not settings.keep_zips:
                 shutil.rmtree(settings.data_dir / "raw" / release.referencia, ignore_errors=True)

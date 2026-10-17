@@ -1,8 +1,8 @@
 [tool.uv.workspace]
-members = ["libs/cnpj_core", "etl"]
+members = ["libs/cnpj_core", "etl", "api"]
 
 [tool.pytest.ini_options]
-testpaths = ["libs/cnpj_core/tests", "etl/tests"]
+testpaths = ["libs/cnpj_core/tests", "etl/tests", "api/tests"]
 addopts = "-q"
 
 [tool.ruff]

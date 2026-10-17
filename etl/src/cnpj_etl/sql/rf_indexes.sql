@@ -20,7 +20,12 @@ CREATE INDEX ON {schema}.estabelecimento (situacao);
 -- @
 CREATE INDEX ON {schema}.estabelecimento (data_inicio);
 -- @
-CREATE INDEX ON {schema}.estabelecimento USING gist (geom);
+-- Busca por raio em duas partes (ver cnpj_api.search): pontos geocodificados pelo índice espacial e
+-- estabelecimentos que só têm o centroide do município por (municipio, cnpj) — milhões de pontos
+-- idênticos degradariam o GiST.
+CREATE INDEX ON {schema}.estabelecimento USING gist (geom) WHERE geo_precisao > 1;
+-- @
+CREATE INDEX ON {schema}.estabelecimento (municipio, cnpj) WHERE geo_precisao = 1;
 -- @
 CREATE INDEX ON {schema}.estabelecimento (endereco_hash);
 -- @
@@ -30,4 +35,4 @@ CREATE INDEX ON {schema}.socio USING gin (nome_norm gin_trgm_ops);
 -- @
 CREATE INDEX ON {schema}.socio (chave_pessoa);
 -- @
-CREATE INDEX ON {schema}.socio (cpf_cnpj) WHERE tipo = 1;
+CREATE INDEX ON {schema}.socio ((left(cpf_cnpj, 8))) WHERE tipo = 1;  -- empresas onde uma PJ é sócia (grafo)

@@ -3,10 +3,10 @@ import zipfile
 
 import httpx
 import pytest
+from cnpj_etl.demo import make_release
 from cnpj_etl.discover import RemoteFile, latest_release, local_release, parse_months, parse_zips
 from cnpj_etl.download import download_file
 from cnpj_etl.layouts import missing_datasets
-from receita_fixture import make_release
 
 BASE = "https://rf.example/dados/cnpj/"
 ALL = (

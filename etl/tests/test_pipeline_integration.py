@@ -9,8 +9,8 @@ import pytest
 from cnpj_etl import finalize, pipeline
 from cnpj_etl.config import Settings
 from cnpj_etl.db import connect, init_db, live_referencia, schema_exists
+from cnpj_etl.demo import cnpj, make_release
 from cnpj_etl.geocode import nominatim
-from receita_fixture import cnpj, make_release
 
 
 @pytest.fixture(scope="module")

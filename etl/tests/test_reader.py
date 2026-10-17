@@ -1,7 +1,7 @@
 import polars as pl
+from cnpj_etl.demo import EMPRESAS_0, ESTABELECIMENTOS_0, line, write_zip
 from cnpj_etl.layouts import EMPRESAS, ESTABELECIMENTOS
 from cnpj_etl.reader import decode, iter_batches, iter_raw_chunks, parse
-from receita_fixture import EMPRESAS_0, ESTABELECIMENTOS_0, line, write_zip
 
 
 def test_decode_latin1_nul_crlf():

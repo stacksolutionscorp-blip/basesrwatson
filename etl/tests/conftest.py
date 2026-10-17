@@ -1,12 +1,8 @@
 import os
-import sys
-from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 import psycopg
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))  # receita_fixture
 
 
 @pytest.fixture(scope="session")

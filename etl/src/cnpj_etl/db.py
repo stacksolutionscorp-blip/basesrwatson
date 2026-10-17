@@ -1,6 +1,7 @@
 from importlib.resources import files
 
 import psycopg
+from cnpj_core.schema import init_db  # noqa: F401 — reexportado
 
 LIVE = "rf"
 NEW = "rf_new"
@@ -13,13 +14,6 @@ def connect(url: str, autocommit: bool = False) -> psycopg.Connection:
 
 def sql_text(name: str) -> str:
     return files("cnpj_etl.sql").joinpath(name).read_text(encoding="utf-8")
-
-
-def init_db(conn: psycopg.Connection) -> None:
-    """Cria extensões e os schemas persistentes (ops, geo). Idempotente."""
-    conn.execute(sql_text("base.sql"))
-    if not conn.autocommit:
-        conn.commit()
 
 
 def schema_exists(conn: psycopg.Connection, schema: str) -> bool:

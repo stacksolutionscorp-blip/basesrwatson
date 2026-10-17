@@ -26,7 +26,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      # via TCP: o servidor temporário da inicialização só escuta no socket
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -48,6 +49,40 @@ services:
       DATA_DIR: /data
     volumes:
       - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cnpj}:${POSTGRES_PASSWORD:-cnpj}@postgres:5432/${POSTGRES_DB:-cnpj}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  # Entrega os webhooks de alterações em CNPJs monitorados.
+  webhooks:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    command: ["cnpj-api", "worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cnpj}:${POSTGRES_PASSWORD:-cnpj}@postgres:5432/${POSTGRES_DB:-cnpj}
+      REDIS_URL: redis://redis:6379/0
+    healthcheck:
+      disable: true
     depends_on:
       postgres:
         condition: service_healthy

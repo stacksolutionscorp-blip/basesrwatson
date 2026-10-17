@@ -90,6 +90,13 @@ class RunLog:
 
 def last_success(conn: psycopg.Connection) -> str | None:
     row = conn.execute(
-        "SELECT referencia FROM ops.etl_run WHERE status = 'success' ORDER BY referencia DESC LIMIT 1"
+        "SELECT referencia FROM ops.etl_run WHERE status = 'success' ORDER BY id DESC LIMIT 1"
     ).fetchone()
     return row[0] if row else None
+
+
+def already_imported(conn: psycopg.Connection, referencia: str) -> bool:
+    row = conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM ops.etl_run WHERE status = 'success' AND referencia = %s)", (referencia,)
+    ).fetchone()
+    return row[0]

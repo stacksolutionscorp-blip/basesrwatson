@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import tempfile
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 
@@ -10,6 +12,7 @@ import typer
 from cnpj_etl import discover, finalize, pipeline
 from cnpj_etl.config import get_settings
 from cnpj_etl.db import connect, init_db, live_referencia
+from cnpj_etl.demo import make_release
 from cnpj_etl.geocode import municipios, nominatim
 from cnpj_etl.runlog import last_success
 
@@ -93,6 +96,34 @@ def status(limit: int = 5) -> None:
             ).fetchall()
             for etapa, arq, n, rej, ms, sst in steps:
                 typer.echo(f"   {etapa:<8} {arq:<28} {n or 0:>12,} rej={rej or 0:<6} {(ms or 0) / 1000:>8.1f}s {sst}")
+
+
+DEMO_REF = "demo"
+_DEMO_MUNICIPIOS = [  # usados se geo.municipio_ibge estiver vazia (ex.: sem internet)
+    (7107, 3550308, "São Paulo", "SP", -23.5329, -46.6395),
+    (6001, 3304557, "Rio de Janeiro", "RJ", -22.9129, -43.2003),
+]
+
+
+@app.command()
+def demo(force: Annotated[bool, typer.Option(help="Sobrescrever mesmo se houver base real carregada")] = False) -> None:
+    """Carrega uma amostra sintética (formato real da Receita) para testar a plataforma em segundos."""
+    s = get_settings()
+    with connect(s.database_url, autocommit=True) as conn:
+        init_db(conn)
+        live = live_referencia(conn)
+        if live not in (None, DEMO_REF) and not force:
+            raise typer.BadParameter(f"a base servida é a real ({live}); use --force para substituir pela demo")
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO geo.municipio_ibge VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                _DEMO_MUNICIPIOS,
+            )
+    with tempfile.TemporaryDirectory() as tmp:
+        release = make_release(Path(tmp) / DEMO_REF)
+        result = pipeline.run(replace(s, min_row_ratio=0.0), source_dir=release, referencia=DEMO_REF, force=True)
+    typer.echo(f"demo carregada: {sum(result.counts.values())} linhas")
+    typer.echo("exemplo: CNPJ 11.222.333/0001-81 (matriz), sócio 'JOSE DA SILVA', CNAE 1091102, UF SP")
 
 
 @app.command()

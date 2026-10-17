@@ -5,10 +5,10 @@ import polars as pl
 import pytest
 from cnpj_core import normalize_text
 from cnpj_etl import transform
+from cnpj_etl.demo import EMPRESAS_0, ESTABELECIMENTOS_0, ESTABELECIMENTOS_1, SOCIOS_0, cnpj
+from cnpj_etl.demo import SIMPLES as SIMPLES_ROWS
 from cnpj_etl.layouts import EMPRESAS, ESTABELECIMENTOS, SIMPLES, SOCIOS
 from cnpj_etl.reader import parse
-from receita_fixture import EMPRESAS_0, ESTABELECIMENTOS_0, ESTABELECIMENTOS_1, SOCIOS_0, cnpj
-from receita_fixture import SIMPLES as SIMPLES_ROWS
 
 
 def frame(lines: list[str], columns: list[str]) -> pl.DataFrame:

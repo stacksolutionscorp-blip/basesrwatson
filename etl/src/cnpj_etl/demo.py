@@ -1,6 +1,9 @@
 """Gera ZIPs no formato dos Dados Abertos CNPJ, com as sujeiras reais dos arquivos:
 latin-1/cp1252, tudo entre aspas, ``;`` dentro de campo, datas "0"/"00000000",
 capital com vírgula, bytes NUL, CRLF, quebra de linha dentro de campo e duplicatas.
+
+Usado nos testes e pelo comando ``cnpj-etl demo``, que carrega esta amostra para
+ver a plataforma funcionando sem baixar a base da Receita.
 """
 
 import zipfile
