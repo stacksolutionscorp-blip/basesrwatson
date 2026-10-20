@@ -18,3 +18,14 @@ def normalize_text(value: str | None) -> str | None:
     no_accents = "".join(c for c in decomposed if not unicodedata.combining(c))
     out = _SPACES.sub(" ", no_accents).strip().upper()
     return out or None
+
+
+# CPF completo dentro de um texto (ex.: razão social de empresário individual/MEI: "JOSE DA SILVA 12345678900").
+_CPF_IN_TEXT = re.compile(r"(?<!\d)\d{3}\.?(\d{3})\.?(\d{3})-?\d{2}(?!\d)")
+
+
+def mask_cpf(text: str | None) -> str | None:
+    """Mascara CPFs completos no mesmo formato que a Receita usa para sócios: ***456789**."""
+    if text is None:
+        return None
+    return _CPF_IN_TEXT.sub(lambda m: f"***{m.group(1)}{m.group(2)}**", text)

@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from cnpj_core import format_cnpj
+from cnpj_core import format_cnpj, mask_cpf
 from psycopg import AsyncConnection
 
 from cnpj_api import risk
@@ -89,8 +89,8 @@ def build(e: dict, emp: dict | None, socios: list[dict], simples: dict | None, c
         "cnpj_formatado": format_cnpj(e["cnpj"]),
         "cnpj_basico": e["cnpj_basico"],
         "matriz": e["matriz"],
-        "razao_social": emp.get("razao_social"),
-        "nome_fantasia": e["nome_fantasia"],
+        "razao_social": mask_cpf(emp.get("razao_social")),
+        "nome_fantasia": mask_cpf(e["nome_fantasia"]),
         "situacao": {
             "codigo": e["situacao"],
             "descricao": SITUACAO.get(e["situacao"]),

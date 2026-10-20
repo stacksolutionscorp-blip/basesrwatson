@@ -1,5 +1,6 @@
 """Rede societária: empresa ↔ sócios ↔ outras empresas, em N saltos (formato cytoscape/vis-network)."""
 
+from cnpj_core import mask_cpf
 from psycopg import AsyncConnection
 
 from cnpj_api.profile import SITUACAO
@@ -101,7 +102,7 @@ async def build_graph(conn: AsyncConnection, cnpj_basico: str, niveis: int, max_
     basicos = [n["id"].split(":", 1)[1] for n in g.nodes.values() if n["tipo"] == "empresa"]
     for r in await (await conn.execute(_EMPRESAS, (basicos,))).fetchall():
         n = g.nodes[_emp(r["cnpj_basico"])]
-        n["label"] = r["razao_social"]
+        n["label"] = mask_cpf(r["razao_social"])
         n["dados"] = {"cnpj_basico": r["cnpj_basico"], "cnpj_matriz": r["cnpj"],
                       "situacao": SITUACAO.get(r["situacao"]), "uf": r["uf"]}  # fmt: skip
     return {"nodes": list(g.nodes.values()), "edges": list(g.edges.values()), "truncado": g.truncado}

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
-from cnpj_core import clean, format_cnpj, is_valid, normalize_text
+from cnpj_core import clean, format_cnpj, is_valid, mask_cpf, normalize_text
 
 from cnpj_api.profile import PORTE, SITUACAO
 from cnpj_api.runtime import LIVE
@@ -186,8 +186,8 @@ def present(row: dict) -> dict:
         "cnpj": row["cnpj"],
         "cnpj_formatado": format_cnpj(row["cnpj"]),
         "matriz": row["matriz"],
-        "razao_social": row["razao_social"],
-        "nome_fantasia": row["nome_fantasia"],
+        "razao_social": mask_cpf(row["razao_social"]),
+        "nome_fantasia": mask_cpf(row["nome_fantasia"]),
         "situacao": SITUACAO.get(row["situacao"]),
         "data_inicio": row["data_inicio"],
         "cnae_principal": row["cnae_principal"],

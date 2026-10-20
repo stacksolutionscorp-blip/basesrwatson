@@ -8,7 +8,8 @@ da Receita Federal.
 |---|---|---|
 | 1 | ETL mensal → PostgreSQL, geocodificação | ✅ |
 | 2 | API REST (FastAPI): consulta, busca, grafo, lote, exportação, monitoramento + webhooks | ✅ |
-| 3 | Frontend (React + Leaflet) | — |
+| 3 | Painel web (React + Leaflet + cytoscape): busca, empresa, mapa, grafo, monitoramento, admin | ✅ |
+| — | Produção: HTTPS automático, backup, retenção de logs, alertas, CI | ✅ |
 
 ## Início rápido (5 minutos, com dados de exemplo)
 
@@ -17,17 +18,18 @@ Pré-requisitos: Git e Docker com Docker Compose.
 ```bash
 git clone https://github.com/stacksolutionscorp-blip/basesrwatson.git && cd basesrwatson
 cp .env.example .env                                   # troque POSTGRES_PASSWORD
-docker compose up -d --build postgres redis api webhooks
+docker compose up -d --build postgres redis api webhooks web backup
 docker compose run --rm etl cnpj-etl demo              # amostra sintética no formato real da Receita
-docker compose exec api cnpj-api criar-chave --nome "meu-sistema" --plano pro   # guarde a chave exibida
+docker compose exec api cnpj-api criar-usuario --email voce@empresa.com --nome "Seu Nome" --admin
 ```
 
-- Documentação interativa: http://localhost:8000/docs (botão **Authorize** → cole a chave)
-- Teste: `curl -H "X-API-Key: SUA_CHAVE" http://localhost:8000/v1/cnpj/11222333000181`
+- **Painel**: http://localhost — entre com o e-mail e a senha criados (o primeiro acesso pede o aceite dos termos de uso)
+- **API**: http://localhost/api/docs — para integrações, gere uma chave em *Administração → Chaves de API*
+- Teste: `curl -H "X-API-Key: SUA_CHAVE" http://localhost/api/v1/cnpj/11222333000181`
 
 Para a base real (≈7 GB de download, 1–1,5 h de carga, ~300 GB livres no pico), suba o
 agendador com `docker compose up -d etl` ou rode `docker compose run --rm etl cnpj-etl run`.
-A API passa a servir a base real automaticamente quando a carga termina (sem reiniciar).
+Painel e API passam a servir a base real automaticamente quando a carga termina (sem reiniciar).
 
 ## Estrutura
 
@@ -37,8 +39,10 @@ libs/cnpj_core/    validação de CNPJ (numérico e alfanumérico), normalizaç�
 etl/               pacote cnpj_etl (CLI `cnpj-etl`) + testes
   src/cnpj_etl/sql/  DDL da carga mensal: rf_tables.sql, rf_indexes.sql
 api/               pacote cnpj_api (FastAPI, CLI `cnpj-api`) + testes
-docker/            entrypoint do container de ETL
-docker-compose.yml postgres (PostGIS), redis, etl, api, webhooks, nominatim (profile "geo")
+web/               painel React (Vite, Tailwind, Leaflet, cytoscape) + testes unitários e E2E (Playwright)
+docker/            Caddyfile, script de backup, entrypoint do ETL
+.github/workflows/ CI: lint, testes Python com Postgres/Redis, front, E2E no navegador, build das imagens
+docker-compose.yml postgres, redis, etl, api, webhooks (worker), web (Caddy), backup, nominatim (profile "geo")
 ```
 
 ## Modelo de dados
@@ -173,6 +177,58 @@ e 26 milhões de sócios.
 - **Tempo**: medido em 4 vCPUs, 1 milhão de estabelecimentos leva ~20 s de carga. A base
   completa deve levar 1–1,5 h, sendo a maior parte em índices trigram.
 
+## Painel web (Fase 3)
+
+| Tela | O que faz |
+|---|---|
+| Início | Busca única com autocomplete: CNPJ (com validação do dígito), razão social, nome fantasia ou sócio |
+| Empresa | Dados cadastrais, score de risco explicado, endereço e contato, mapa, CNAEs, quadro societário, filiais, botão de monitorar e histórico |
+| Rede societária | Grafo interativo (1 a 3 níveis): clique numa empresa ou pessoa para navegar |
+| Busca avançada | Todos os filtros da API, raio a partir de um clique no mapa ou da sua localização, mapa com agrupamento por região, exportação CSV/Excel; os filtros ficam na URL (dá para compartilhar o link) |
+| Sócios | Pessoa ou empresa sócia → todas as empresas ligadas |
+| Consulta em lote | Cole centenas de CNPJs (de qualquer planilha) e baixe o resultado em CSV |
+| Monitoramento | CNPJs acompanhados, histórico de mudanças e cadastro/teste de webhooks |
+| Uso da API | Consumo por dia e por rota, limites do plano |
+| Administração | Usuários (papel, plano, ativar/desativar), chaves de API, planos, cargas da Receita (com etapas e erros), webhooks com falha, consumo por conta e auditoria do log de acesso |
+
+**Login e segurança**: sessão por cookie `HttpOnly`/`SameSite=Lax` (12 h), senha com scrypt (mínimo 10
+caracteres), bloqueio de 15 min após 10 senhas erradas, proteção contra CSRF em toda requisição que
+altera dados. Usuários são criados pelo administrador (não há cadastro aberto).
+
+**LGPD**: o primeiro acesso exige o aceite dos termos de uso (`api/src/cnpj_api/termos.md`, ou o seu
+arquivo em `API_TERMOS_ARQUIVO`); mudar a versão do arquivo pede novo aceite a todos. Cada consulta fica
+registrada com usuário, IP e o que foi consultado (*Administração → Auditoria*). CPFs aparecem só
+mascarados — inclusive o CPF que a Receita anexa à razão social de empresários individuais e MEIs
+("JOSÉ DA SILVA 12345678900" vira "JOSÉ DA SILVA ***456789**"), que também é retirado do índice de
+busca para que ninguém localize uma pessoa digitando o CPF completo.
+
+**Mapas**: os tiles vêm dos servidores públicos do OpenStreetMap, adequados a uso moderado. Com muito
+tráfego, use um provedor de tiles (ou servidor próprio) com `VITE_TILE_URL` e `TILE_HOSTS` no `.env`.
+
+## Produção
+
+1. **Domínio e HTTPS**: aponte o DNS para o servidor, libere as portas 80 e 443 e defina no `.env`
+   `SITE_ADDRESS=cnpj.suaempresa.com.br` e `API_COOKIE_SECURE=1`. O Caddy emite e renova o certificado
+   sozinho (Let's Encrypt). Integrações passam a usar `https://cnpj.suaempresa.com.br/api/v1/...`.
+2. **Portas**: Postgres, Redis, API direta e Nominatim só escutam em `127.0.0.1`; o acesso externo é
+   sempre pelo Caddy, que também aplica cabeçalhos de segurança (CSP, HSTS, X-Frame-Options).
+3. **Backup**: o serviço `backup` grava todo dia (às `BACKUP_HORA`) um `pg_dump` dos schemas `app`,
+   `geo` e `ops` em `BACKUP_DIR`, mantendo `BACKUP_RETENCAO_DIAS` dias. A base da Receita (`rf`) não
+   entra: é recarregada pelo ETL. Copie `BACKUP_DIR` para fora do servidor (S3, outro disco etc.).
+   ```bash
+   docker compose exec backup sh /backup.sh agora                 # backup imediato
+   # restauração (banco novo ou após perda de dados):
+   docker compose run --rm etl cnpj-etl db-init
+   docker compose exec backup pg_restore --clean --if-exists -d cnpj /backups/cnpj-AAAAMMDD-HHMM.dump
+   ```
+4. **Alertas**: defina `ALERTA_WEBHOOK_URL` (Slack, Discord, Teams/Power Automate ou qualquer endpoint
+   JSON) para ser avisado quando uma carga da Receita falhar, quando nenhuma carga for concluída há mais
+   de `ALERTA_ETL_ATRASO_DIAS` dias ou quando webhooks de clientes esgotarem as tentativas. Os alertas
+   também aparecem no log do serviço `webhooks` e em `GET /api/v1/admin/alertas`.
+5. **Retenção**: o log de acesso é mantido por `API_LOG_RETENCAO_DIAS` (padrão 365; o Marco Civil exige
+   no mínimo 6 meses). Sessões expiradas e entregas antigas de webhook também são limpas.
+6. **Atualização**: `git pull && docker compose up -d --build`. O schema é atualizado sozinho na subida.
+
 ## API (Fase 2)
 
 Documentação OpenAPI completa em `/docs` (Swagger) e `/redoc`; contrato em `/openapi.json`
@@ -195,7 +251,9 @@ Documentação OpenAPI completa em `/docs` (Swagger) e `/redoc`; contrato em `/o
 | DELETE | `/v1/webhooks/{id}` | Remover |
 | POST | `/v1/webhooks/{id}/teste` | Dispara um evento de teste para validar a integração |
 | GET | `/v1/uso` | Consumo da chave por dia e por rota, limites do plano |
+| GET | `/v1/cnaes?q=` · `/v1/municipios?q=` | Listas para filtros e autocomplete |
 | GET | `/health` | Saúde (sem autenticação): banco, Redis, mês da base servida |
+| — | `/v1/auth/*`, `/v1/termos`, `/v1/admin/*` | Login, termos e administração do painel (documentados em `/docs`) |
 
 **Autenticação**: header `X-API-Key: <chave>` (ou `Authorization: Bearer <chave>`). Chaves são
 geradas por linha de comando e só o hash SHA-256 fica no banco:
@@ -232,10 +290,10 @@ consultado, status, IP, user-agent, duração).
 ### Integrando outro sistema
 
 ```bash
-curl -H "X-API-Key: $CHAVE" http://localhost:8000/v1/cnpj/11222333000181
-curl -H "X-API-Key: $CHAVE" "http://localhost:8000/v1/busca?cnae=4321500&lat=-23.55&lng=-46.63&raio_km=15&situacao=2"
+curl -H "X-API-Key: $CHAVE" http://localhost/api/v1/cnpj/11222333000181
+curl -H "X-API-Key: $CHAVE" "http://localhost/api/v1/busca?cnae=4321500&lat=-23.55&lng=-46.63&raio_km=15&situacao=2"
 curl -H "X-API-Key: $CHAVE" -H "Content-Type: application/json" \
-     -d '{"cnpjs": ["11.222.333/0001-81", "33.000.167/0001-01"]}' http://localhost:8000/v1/lote
+     -d '{"cnpjs": ["11.222.333/0001-81", "33.000.167/0001-01"]}' http://localhost/api/v1/lote
 ```
 
 Python:
@@ -243,7 +301,7 @@ Python:
 ```python
 import httpx
 
-api = httpx.Client(base_url="http://localhost:8000", headers={"X-API-Key": CHAVE}, timeout=30)
+api = httpx.Client(base_url="http://localhost/api", headers={"X-API-Key": CHAVE}, timeout=30)
 empresa = api.get("/v1/cnpj/11222333000181").json()
 print(empresa["razao_social"], empresa["situacao"]["descricao"], empresa["score_risco"]["nivel"])
 ```
@@ -251,7 +309,7 @@ print(empresa["razao_social"], empresa["situacao"]["descricao"], empresa["score_
 Node/TypeScript:
 
 ```ts
-const r = await fetch("http://localhost:8000/v1/cnpj/11222333000181", { headers: { "X-API-Key": CHAVE } });
+const r = await fetch("http://localhost/api/v1/cnpj/11222333000181", { headers: { "X-API-Key": CHAVE } });
 if (r.status === 404) { /* CNPJ não existe na base */ }
 const empresa = await r.json();
 ```
@@ -327,7 +385,21 @@ TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/postgres uv run pytest  
 # Redis de teste: TEST_REDIS_URL (padrão redis://localhost:6379/15)
 ```
 
-Os testes de integração criam e removem os bancos `cnpj_etl_test` e `cnpj_api_test`. O servidor precisa
+Os testes de integração criam e removem os bancos `cnpj_etl_test` e `cnpj_api_test`.
+
+Frontend:
+
+```bash
+cd web && npm ci
+npm run dev            # http://localhost:5173 (encaminha /api para a API em :8000)
+npm run typecheck && npm test
+# ponta a ponta no navegador (com API + front rodando e um usuário admin criado):
+E2E_BASE_URL=http://localhost E2E_EMAIL=admin@demo.com E2E_SENHA=... npx playwright test
+```
+
+O CI (`.github/workflows/ci.yml`) roda tudo isso a cada push: lint, testes Python com Postgres/PostGIS
+e Redis, tipos/testes/build do front, testes de navegador contra a stack com a base demo e o build das
+três imagens Docker. O servidor precisa
 de PostGIS e pg_trgm. Os ZIPs de teste (`etl/tests/receita_fixture.py`) reproduzem o
 formato real e suas sujeiras: latin-1, `;` dentro de campo, aspas internas, quebra
 de linha em campo, NUL, CRLF, datas zeradas, duplicatas e CNPJ alfanumérico.

@@ -152,3 +152,10 @@ def test_simples():
 def test_aux_rejeita_codigo_invalido():
     df, rejected = transform.aux(frame(['"0001";"X"', '"abc";"Y"'], ["codigo", "descricao"]))
     assert df.to_dicts() == [{"codigo": 1, "descricao": "X"}] and rejected == 1
+
+
+def test_razao_social_norm_sem_cpf():
+    df, _ = transform.empresas(frame(EMPRESAS_0, EMPRESAS))
+    jose = df.filter(pl.col("cnpj_basico") == "77888999").row(0, named=True)
+    assert jose["razao_social"] == "JOSÉ DA SILVA 12345678900"  # dado original preservado no banco
+    assert jose["razao_social_norm"] == "JOSE DA SILVA"  # índice de busca sem o CPF

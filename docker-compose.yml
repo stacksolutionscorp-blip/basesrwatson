@@ -21,8 +21,9 @@ services:
       -c random_page_cost=1.1
       -c pg_trgm.similarity_threshold=0.3
     shm_size: 1g
+    # só na máquina local (ferramentas de banco, ETL fora do Docker); nunca exponha à internet
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -36,7 +37,7 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-1gb}", "--maxmemory-policy", "allkeys-lru"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"  # Redis sem senha: só local
 
   etl:
     build:
@@ -62,8 +63,11 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cnpj}:${POSTGRES_PASSWORD:-cnpj}@postgres:5432/${POSTGRES_DB:-cnpj}
       REDIS_URL: redis://redis:6379/0
+      API_ROOT_PATH: /api      # publicada pelo Caddy em https://SEU_DOMINIO/api
+      API_TRUST_PROXY: "1"
+    # acesso direto (sem proxy) só pela própria máquina; integrações externas usam /api via Caddy
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,7 +75,47 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # Entrega os webhooks de alterações em CNPJs monitorados.
+  # Front (React) + proxy da API com HTTPS automático (Caddy).
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        VITE_TILE_URL: ${VITE_TILE_URL:-}
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      TILE_HOSTS: ${TILE_HOSTS:-https://*.tile.openstreetmap.org}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Backup diário de app/geo/ops (a base da Receita é recarregável e fica de fora).
+  backup:
+    image: postgis/postgis:16-3.4
+    entrypoint: ["sh", "/backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-cnpj}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-cnpj}
+      PGDATABASE: ${POSTGRES_DB:-cnpj}
+      BACKUP_RETENCAO_DIAS: ${BACKUP_RETENCAO_DIAS:-14}
+      BACKUP_HORA: ${BACKUP_HORA:-03}
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      - ./docker/backup.sh:/backup.sh:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Entrega webhooks de alterações e roda a manutenção (retenção de logs, alertas).
   webhooks:
     build:
       context: .
@@ -102,7 +146,7 @@ services:
       NOMINATIM_PASSWORD: ${NOMINATIM_PASSWORD:-nominatim}
     shm_size: 1g
     ports:
-      - "${NOMINATIM_PORT:-8080}:8080"
+      - "127.0.0.1:${NOMINATIM_PORT:-8080}:8080"
     volumes:
       - nominatim-data:/var/lib/postgresql/16/main
     restart: unless-stopped
@@ -110,3 +154,5 @@ services:
 volumes:
   pgdata:
   nominatim-data:
+  caddy-data:
+  caddy-config:

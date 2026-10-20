@@ -7,7 +7,7 @@ import typer
 import uvicorn
 from cnpj_core.schema import init_db
 
-from cnpj_api import webhooks
+from cnpj_api import maintenance, users, webhooks
 from cnpj_api.auth import generate_key
 from cnpj_api.config import get_settings
 from cnpj_api.runtime import make_pool
@@ -53,6 +53,28 @@ def criar_chave(
     typer.echo(key)
 
 
+@app.command("criar-usuario")
+def criar_usuario(
+    email: Annotated[str, typer.Option()],
+    nome: Annotated[str, typer.Option()],
+    admin: Annotated[bool, typer.Option("--admin", help="Administrador do painel")] = False,
+    plano: str = "pro",
+    senha: Annotated[str | None, typer.Option(help="Se omitida, será perguntada")] = None,
+) -> None:
+    """Cria um usuário do painel web (use --admin para o primeiro acesso)."""
+    if senha is None:
+        senha = typer.prompt("senha", hide_input=True, confirmation_prompt=True)
+    with psycopg.connect(get_settings().database_url, autocommit=True) as conn:
+        init_db(conn)
+        try:
+            uid = users.create_user_sync(conn, email, nome, senha, "admin" if admin else "usuario", plano)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        except psycopg.errors.UniqueViolation as exc:
+            raise typer.BadParameter("já existe usuário com este e-mail") from exc
+    typer.echo(f"usuário {uid} criado ({'admin' if admin else 'usuario'})")
+
+
 @app.command("listar-chaves")
 def listar_chaves() -> None:
     with psycopg.connect(get_settings().database_url, autocommit=True) as conn:
@@ -72,14 +94,20 @@ def revogar_chave(id: int) -> None:
 
 @app.command()
 def worker(intervalo: float = 10.0) -> None:
-    """Entrega os webhooks pendentes (rode como serviço separado)."""
+    """Entrega webhooks pendentes e roda a manutenção (retenção de logs, alertas). Serviço separado da API."""
+
+    settings = get_settings()
+    with psycopg.connect(settings.database_url, autocommit=True) as conn:
+        init_db(conn)  # o worker pode subir antes da API num banco novo
 
     async def main():
-        settings = get_settings()
         pool = make_pool(settings)
         await pool.open(wait=True)
         try:
-            await webhooks.run_worker(pool, intervalo, settings.webhook_allow_private)
+            await asyncio.gather(
+                webhooks.run_worker(pool, intervalo, settings.webhook_allow_private),
+                maintenance.run_maintenance(pool),
+            )
         finally:
             await pool.close()
 

@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from cnpj_core import clean, format_cnpj, is_valid, normalize_text
+from cnpj_core import clean, format_cnpj, is_valid, mask_cpf, normalize_text
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 
@@ -157,7 +157,7 @@ async def socios(
                               "tipo": profile.TIPO_SOCIO.get(r["tipo"]), "empresas": []}  # fmt: skip
         pessoas[chave]["empresas"].append({
             "cnpj_basico": r["cnpj_basico"],
-            "razao_social": r["razao_social"],
+            "razao_social": mask_cpf(r["razao_social"]),
             "qualificacao": profile._cod(r["qualificacao"], r["qualificacao_descricao"]),
             "data_entrada": r["data_entrada"],
         })  # fmt: skip
@@ -218,10 +218,61 @@ async def sugestoes(
             if r["cnpj"] in vistos:
                 continue
             vistos.add(r["cnpj"])
-            empresas.append({"cnpj": r["cnpj"], "razao_social": r["razao_social"], "nome_fantasia": r["nome_fantasia"],
+            empresas.append({"cnpj": r["cnpj"], "razao_social": mask_cpf(r["razao_social"]),
+                             "nome_fantasia": mask_cpf(r["nome_fantasia"]),
                              "uf": r["uf"], "situacao": profile.SITUACAO.get(r["situacao"]),
                              "origem": origem})  # fmt: skip
     socios_out = [
         {"nome": r["nome"], "cpf_cnpj": r["cpf_cnpj"], "tipo": profile.TIPO_SOCIO.get(r["tipo"])} for r in pessoas
     ]
     return {"empresas": empresas[: limite * 2], "socios": socios_out}
+
+
+@router.get("/cnaes", summary="Lista/autocomplete de CNAEs (para filtros)")
+async def cnaes(
+    request: Request,
+    _: ClienteDep,
+    q: Annotated[str | None, Query(description="Código ou parte da descrição")] = None,
+    limite: Annotated[int, Query(ge=1, le=2000)] = 30,
+):
+    params: dict = {"n": limite}
+    where = "true"
+    if q:
+        codigo = "".join(ch for ch in q if ch not in ".-/ ")
+        if codigo.isdigit():  # "4721-1/02" ou "47211"
+            where = "codigo::text LIKE %(cod)s"
+            params["cod"] = f"{codigo}%"
+        else:
+            where = "unaccent_upper(descricao) LIKE %(desc)s"
+            params["desc"] = search._like(normalize_text(q))
+    async with request.app.state.pool.connection() as conn:
+        return await (
+            await conn.execute(
+                f"SELECT codigo, descricao FROM {LIVE}.cnae WHERE {where} ORDER BY codigo LIMIT %(n)s", params
+            )
+        ).fetchall()
+
+
+@router.get("/municipios", summary="Lista/autocomplete de municípios (para filtros)")
+async def municipios(
+    request: Request,
+    _: ClienteDep,
+    q: Annotated[str | None, Query(description="Parte do nome")] = None,
+    uf: str | None = None,
+    limite: Annotated[int, Query(ge=1, le=6000)] = 30,
+):
+    where, params = ["true"], {"n": limite}
+    if q:
+        where.append("unaccent_upper(nome) LIKE %(q)s")
+        params["q"] = search._like(normalize_text(q)).removeprefix("%")
+    if uf:
+        where.append("uf = %(uf)s")
+        params["uf"] = uf.upper()
+    async with request.app.state.pool.connection() as conn:
+        return await (
+            await conn.execute(
+                f"""SELECT codigo_siafi, codigo_ibge, nome, uf, lat, lng FROM geo.municipio_ibge
+                    WHERE {" AND ".join(where)} ORDER BY nome, uf LIMIT %(n)s""",
+                params,
+            )
+        ).fetchall()

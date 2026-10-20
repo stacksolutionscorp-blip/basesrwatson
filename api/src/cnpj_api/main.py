@@ -1,7 +1,6 @@
 """Aplicação FastAPI."""
 
 import asyncio
-import ipaddress
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -15,8 +14,10 @@ from psycopg import errors as psycopg_errors
 from psycopg_pool import PoolTimeout
 from redis import asyncio as aioredis
 
+from cnpj_api import users
 from cnpj_api.config import Settings, get_settings
-from cnpj_api.routes import busca, consulta, conta, monitor
+from cnpj_api.netutil import valid_ip
+from cnpj_api.routes import admin, busca, consulta, conta, conta_web, monitor
 from cnpj_api.runtime import Cache, listen_swaps, live_referencia, make_pool
 
 log = logging.getLogger("cnpj_api")
@@ -47,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         st.referencia = await live_referencia(st.pool)
         st.key_memo = {}
         st.log_tasks = set()
+        st.termos_versao, st.termos_texto = users.terms(settings.termos_arquivo)
         st.http = httpx.AsyncClient(timeout=10, headers={"User-Agent": "cnpj-intel-webhooks/0.1"})
 
         async def on_swap(referencia: str) -> None:
@@ -71,11 +73,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="0.1.0",
         description=DESCRIPTION,
         lifespan=lifespan,
+        root_path=settings.root_path,
         openapi_tags=[
             {"name": "consulta", "description": "Perfil, filiais, sócios, grafo e lote"},
             {"name": "busca", "description": "Filtros combinados, raio geográfico e exportação"},
             {"name": "monitoramento", "description": "CNPJs acompanhados, histórico e webhooks"},
-            {"name": "conta", "description": "Consumo da API"},
+            {"name": "conta", "description": "Consumo da API, login do painel e termos de uso"},
+            {"name": "admin", "description": "Usuários, chaves, planos, cargas do ETL e auditoria (administradores)"},
         ],
     )
     app.add_middleware(
@@ -103,10 +107,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ip = request.client.host if request.client else None
             if settings.trust_proxy and (fwd := request.headers.get("x-forwarded-for")):
                 ip = fwd.split(",")[0].strip()
-            ip = _valid_ip(ip)
+            ip = valid_ip(ip)
             cliente = getattr(request.state, "cliente", None)
+            usuario_id = cliente.usuario_id if cliente else getattr(request.state, "usuario_id", None)
             entry = (
                 cliente.id if cliente else None,
+                usuario_id,
                 request.method,
                 getattr(route, "path", request.url.path),
                 request.url.path,
@@ -155,16 +161,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log.error("banco indisponível: %s", exc)
         return JSONResponse({"detail": "banco de dados indisponível; tente novamente"}, status_code=503)
 
-    for r in (consulta.router, busca.router, monitor.router, conta.router):
+    for r in (conta_web.router, consulta.router, busca.router, monitor.router, conta.router, admin.router):
         app.include_router(r)
     return app
-
-
-def _valid_ip(value: str | None) -> str | None:
-    try:
-        return str(ipaddress.ip_address(value)) if value else None
-    except ValueError:
-        return None
 
 
 async def _write_log(app: FastAPI, entry: tuple) -> None:
@@ -172,8 +171,8 @@ async def _write_log(app: FastAPI, entry: tuple) -> None:
         async with app.state.pool.connection() as conn:
             await conn.execute(
                 """INSERT INTO app.access_log
-                   (api_key_id, metodo, rota, caminho, consulta, status, duracao_ms, ip, user_agent)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   (api_key_id, usuario_id, metodo, rota, caminho, consulta, status, duracao_ms, ip, user_agent)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 entry,
             )
     except Exception:

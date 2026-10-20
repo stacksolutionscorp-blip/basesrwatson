@@ -1,5 +1,5 @@
 import pytest
-from cnpj_core import clean, compute_dv, format_cnpj, is_valid, normalize_text
+from cnpj_core import clean, compute_dv, format_cnpj, is_valid, mask_cpf, normalize_text
 
 
 @pytest.mark.parametrize(
@@ -64,3 +64,18 @@ def test_clean_e_format():
 )
 def test_normalize_text(entrada, esperado):
     assert normalize_text(entrada) == esperado
+
+
+@pytest.mark.parametrize(
+    ("entrada", "esperado"),
+    [
+        ("JOSE DA SILVA 12345678900", "JOSE DA SILVA ***456789**"),
+        ("MARIA 123.456.789-00 ME", "MARIA ***456789** ME"),
+        ("EMPRESA 2020 LTDA", "EMPRESA 2020 LTDA"),  # números que não são CPF ficam
+        ("TEL 1133334444", "TEL 1133334444"),  # 10 dígitos
+        ("COD 123456789001", "COD 123456789001"),  # 12 dígitos
+        (None, None),
+    ],
+)
+def test_mask_cpf(entrada, esperado):
+    assert mask_cpf(entrada) == esperado

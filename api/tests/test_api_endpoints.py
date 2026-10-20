@@ -218,3 +218,14 @@ def test_sem_base_carregada_responde_503(client, auth, loaded_db):
     finally:
         with psycopg.connect(loaded_db, autocommit=True) as c:
             c.execute("ALTER SCHEMA rf_oculto RENAME TO rf")
+
+
+def test_cpf_na_razao_social_e_mascarado(client, auth):
+    p = client.get(f"/v1/cnpj/{MEI}", headers=auth).json()
+    assert p["razao_social"] == "JOSÉ DA SILVA ***456789**"
+    busca = client.get("/v1/busca", params={"mei": True}, headers=auth).json()["resultados"]
+    assert busca[0]["razao_social"] == "JOSÉ DA SILVA ***456789**"
+    # o CPF completo não serve para localizar a pessoa pela busca textual
+    assert client.get("/v1/busca", params={"q": "12345678900"}, headers=auth).json()["resultados"] == []
+    r = client.get("/v1/export", params={"mei": True}, headers=auth)
+    assert "12345678900" not in r.content.decode("utf-8-sig")

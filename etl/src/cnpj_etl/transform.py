@@ -101,7 +101,9 @@ def empresas(df: pl.DataFrame) -> tuple[pl.DataFrame, int]:
     out = df.select(
         cnpj_basico=pad("cnpj_basico", 8),
         razao_social=txt("razao_social"),
-        razao_social_norm=norm("razao_social"),
+        # sem o CPF que a Receita anexa à razão social de empresário individual/MEI: a busca
+        # textual não deve permitir achar uma pessoa digitando o CPF completo (LGPD)
+        razao_social_norm=norm(pl.col("razao_social").str.replace_all(r"\b\d{11}\b|\b\d{3}\.\d{3}\.\d{3}-\d{2}\b", "")),
         natureza_juridica=integer("natureza_juridica"),
         qualificacao_resp=integer("qualificacao_responsavel"),
         capital_social=capital("capital_social"),

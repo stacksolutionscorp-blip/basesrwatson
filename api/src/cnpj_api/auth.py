@@ -1,4 +1,11 @@
-"""Autenticação por API key (header ``X-API-Key`` ou ``Authorization: Bearer``) e rate limit por plano."""
+"""Autenticação e rate limit por plano.
+
+Dois caminhos levam ao mesmo ``Cliente``:
+- integrações: API key no header ``X-API-Key`` (ou ``Authorization: Bearer``);
+- painel web: cookie de sessão do usuário, que usa a chave "pessoal" dele (monitoramento,
+  webhooks e limites funcionam igual). Requisições que alteram dados exigem o header
+  ``X-Requested-With: cnpj-web`` (proteção contra CSRF) e o aceite da versão vigente dos termos.
+"""
 
 import hashlib
 import secrets
@@ -10,6 +17,10 @@ from redis.exceptions import RedisError
 
 KEY_PREFIX = "cnpj_"
 _LOOKUP_TTL = 60  # segundos que uma chave validada fica em memória
+SESSION_COOKIE = "cnpj_sessao"
+CSRF_HEADER = "x-requested-with"
+CSRF_VALUE = "cnpj-web"
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 @dataclass(frozen=True)
@@ -24,10 +35,14 @@ class Plano:
 
 @dataclass(frozen=True)
 class Cliente:
-    id: int
+    id: int  # api_key.id (a chave pessoal, no caso de sessão)
     nome: str
     prefixo: str
     plano: Plano
+    usuario_id: int | None = None
+    papel: str | None = None  # admin | usuario (só quando há usuário)
+    via_sessao: bool = False
+    termos_versao: str | None = None
 
 
 def generate_key() -> tuple[str, str, bytes]:
@@ -40,6 +55,9 @@ def hash_key(key: str) -> bytes:
     return hashlib.sha256(key.encode()).digest()
 
 
+token_hash = hash_key  # tokens de sessão são guardados do mesmo jeito (sha256)
+
+
 def _extract(request: Request) -> str | None:
     key = request.headers.get("x-api-key")
     if key:
@@ -50,12 +68,29 @@ def _extract(request: Request) -> str | None:
     return None
 
 
-_SQL = """
-SELECT k.id, k.nome, k.prefixo, p.id AS plano_id, p.req_por_minuto, p.req_por_dia,
-       p.lote_max, p.export_max, p.monitor_max
+_COLS = """k.id, k.nome, k.prefixo, p.id AS plano_id, p.req_por_minuto, p.req_por_dia, p.lote_max,
+       p.export_max, p.monitor_max, u.id AS usuario_id, u.papel, u.termos_versao"""
+_SQL = f"""
+SELECT {_COLS}
 FROM app.api_key k JOIN app.plano p ON p.id = k.plano_id
-WHERE k.hash = %s AND k.ativo
+LEFT JOIN app.usuario u ON u.id = k.usuario_id
+WHERE k.hash = %s AND k.ativo AND (u.id IS NULL OR u.ativo)
 """
+_SESSION_SQL = f"""
+SELECT {_COLS}
+FROM app.sessao s
+JOIN app.usuario u ON u.id = s.usuario_id AND u.ativo
+JOIN app.api_key k ON k.usuario_id = u.id AND k.pessoal AND k.ativo
+JOIN app.plano p ON p.id = k.plano_id
+WHERE s.token_hash = %s AND s.expira_em > now()
+"""
+
+
+def _cliente(row: dict, via_sessao: bool) -> Cliente:
+    plano = Plano(row["plano_id"], row["req_por_minuto"], row["req_por_dia"], row["lote_max"],
+                  row["export_max"], row["monitor_max"])  # fmt: skip
+    return Cliente(row["id"], row["nome"], row["prefixo"], plano, row["usuario_id"], row["papel"], via_sessao,
+                   row["termos_versao"])  # fmt: skip
 
 
 async def _lookup(request: Request, key: str) -> Cliente | None:
@@ -66,13 +101,15 @@ async def _lookup(request: Request, key: str) -> Cliente | None:
         return hit[0]
     async with request.app.state.pool.connection() as conn:
         row = await (await conn.execute(_SQL, (digest,))).fetchone()
-    cliente = None
-    if row:
-        plano = Plano(row["plano_id"], row["req_por_minuto"], row["req_por_dia"], row["lote_max"],
-                      row["export_max"], row["monitor_max"])  # fmt: skip
-        cliente = Cliente(row["id"], row["nome"], row["prefixo"], plano)
+    cliente = _cliente(row, False) if row else None
     memo[digest] = (cliente, time.monotonic() + _LOOKUP_TTL)
     return cliente
+
+
+async def _session(request: Request, token: str) -> Cliente | None:
+    async with request.app.state.pool.connection() as conn:
+        row = await (await conn.execute(_SESSION_SQL, (token_hash(token),))).fetchone()
+    return _cliente(row, True) if row else None
 
 
 async def _rate_limit(request: Request, cliente: Cliente) -> dict[str, str]:
@@ -107,14 +144,29 @@ async def _rate_limit(request: Request, cliente: Cliente) -> dict[str, str]:
     return headers
 
 
-async def require_client(request: Request) -> Cliente:
-    """Dependência FastAPI: valida a chave, aplica o rate limit e registra o cliente para o log."""
+async def authenticate(request: Request, exige_termos: bool = True) -> Cliente:
+    """Valida chave ou sessão, aplica CSRF/termos/rate limit e registra o cliente para o log de acesso."""
     key = _extract(request)
-    if not key:
+    token = request.cookies.get(SESSION_COOKIE)
+    if key:
+        cliente = await _lookup(request, key)
+        if cliente is None:
+            raise HTTPException(401, "API key inválida ou revogada", headers={"WWW-Authenticate": "Bearer"})
+    elif token:
+        cliente = await _session(request, token)
+        if cliente is None:
+            raise HTTPException(401, "sessão expirada; entre novamente")
+        if request.method not in _SAFE_METHODS and request.headers.get(CSRF_HEADER) != CSRF_VALUE:
+            raise HTTPException(403, "requisição sem o header X-Requested-With")
+    else:
         raise HTTPException(401, "informe a API key no header X-API-Key", headers={"WWW-Authenticate": "Bearer"})
-    cliente = await _lookup(request, key)
-    if cliente is None:
-        raise HTTPException(401, "API key inválida ou revogada", headers={"WWW-Authenticate": "Bearer"})
     request.state.cliente = cliente
+    if exige_termos and cliente.via_sessao and cliente.termos_versao != request.app.state.termos_versao:
+        raise HTTPException(403, "aceite os termos de uso vigentes para continuar",
+                            headers={"X-Termos-Pendentes": request.app.state.termos_versao})  # fmt: skip
     request.state.rate_headers = await _rate_limit(request, cliente)
     return cliente
+
+
+async def require_client(request: Request) -> Cliente:
+    return await authenticate(request)

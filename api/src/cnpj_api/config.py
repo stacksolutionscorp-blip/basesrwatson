@@ -21,6 +21,14 @@ class Settings:
     trust_proxy: bool = field(default_factory=lambda: _env("API_TRUST_PROXY", "0") == "1")
     # Permite webhooks para endereços internos (só para desenvolvimento/testes).
     webhook_allow_private: bool = field(default_factory=lambda: _env("API_WEBHOOK_ALLOW_PRIVATE", "0") == "1")
+    session_hours: int = field(default_factory=lambda: int(_env("API_SESSION_HOURS", "12")))
+    # 1 em produção (HTTPS): o cookie de sessão só trafega criptografado.
+    cookie_secure: bool = field(default_factory=lambda: _env("API_COOKIE_SECURE", "0") == "1")
+    # Arquivo Markdown com os termos de uso (1ª linha: "versao: AAAA-MM-DD"). Vazio = texto padrão.
+    termos_arquivo: str | None = field(default_factory=lambda: _env("API_TERMOS_ARQUIVO", "") or None)
+    login_max_tentativas: int = field(default_factory=lambda: int(_env("API_LOGIN_MAX_TENTATIVAS", "10")))
+    # Prefixo público quando a API fica atrás do proxy (Caddy serve em /api): ajusta /docs e o OpenAPI.
+    root_path: str = field(default_factory=lambda: _env("API_ROOT_PATH", ""))
     graph_max_nodes: int = field(default_factory=lambda: int(_env("API_GRAPH_MAX_NODES", "300")))
 
 

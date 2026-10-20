@@ -142,3 +142,56 @@ CREATE TABLE IF NOT EXISTS app.webhook_entrega (
 );
 CREATE INDEX IF NOT EXISTS webhook_entrega_fila_idx
     ON app.webhook_entrega (proxima_tentativa_em) WHERE status = 'pendente';
+
+-- ---------------------------------------------------------------- usuários do painel web
+CREATE TABLE IF NOT EXISTS app.usuario (
+    id                bigserial PRIMARY KEY,
+    email             text        NOT NULL,
+    nome              text        NOT NULL,
+    senha_hash        text        NOT NULL,             -- scrypt (ver cnpj_api.users)
+    papel             text        NOT NULL DEFAULT 'usuario' CHECK (papel IN ('admin', 'usuario')),
+    ativo             boolean     NOT NULL DEFAULT true,
+    termos_versao     text,                             -- versão dos termos de uso aceita
+    termos_aceitos_em timestamptz,
+    criado_em         timestamptz NOT NULL DEFAULT now(),
+    ultimo_login_em   timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS usuario_email_uidx ON app.usuario (lower(email));
+
+-- Cada usuário tem uma chave "pessoal" interna: monitoramento, webhooks e limites do painel
+-- usam a mesma estrutura das integrações. Chaves de integração também podem pertencer a um usuário.
+ALTER TABLE app.api_key ADD COLUMN IF NOT EXISTS usuario_id bigint REFERENCES app.usuario (id) ON DELETE CASCADE;
+ALTER TABLE app.api_key ADD COLUMN IF NOT EXISTS pessoal boolean NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS api_key_pessoal_uidx ON app.api_key (usuario_id) WHERE pessoal;
+
+CREATE TABLE IF NOT EXISTS app.sessao (
+    token_hash bytea       PRIMARY KEY,                 -- sha256 do token do cookie
+    usuario_id bigint      NOT NULL REFERENCES app.usuario (id) ON DELETE CASCADE,
+    criado_em  timestamptz NOT NULL DEFAULT now(),
+    expira_em  timestamptz NOT NULL,
+    ip         inet,
+    user_agent text
+);
+CREATE INDEX IF NOT EXISTS sessao_expira_idx ON app.sessao (expira_em);
+
+ALTER TABLE app.access_log ADD COLUMN IF NOT EXISTS usuario_id bigint;
+CREATE INDEX IF NOT EXISTS access_log_criado_idx ON app.access_log (criado_em);
+CREATE INDEX IF NOT EXISTS access_log_usuario_idx ON app.access_log (usuario_id, criado_em);
+
+-- Alertas operacionais já enviados (evita repetir a mesma notificação).
+CREATE TABLE IF NOT EXISTS app.alerta (
+    id         bigserial PRIMARY KEY,
+    tipo       text        NOT NULL,
+    chave      text        NOT NULL,
+    mensagem   text        NOT NULL,
+    enviado_em timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (tipo, chave)
+);
+
+-- Maiúsculas sem acento (mesma regra de cnpj_core.normalize_text) para buscas em tabelas pequenas.
+CREATE OR REPLACE FUNCTION public.unaccent_upper(t text) RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT upper(translate(t,
+        'áàâãäåÁÀÂÃÄÅéèêëÉÈÊËíìîïÍÌÎÏóòôõöÓÒÔÕÖúùûüÚÙÛÜçÇñÑýÿÝ',
+        'aaaaaaAAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUcCnNyyY'))
+$$;
