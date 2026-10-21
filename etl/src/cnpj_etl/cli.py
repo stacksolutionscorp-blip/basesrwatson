@@ -124,7 +124,16 @@ def demo(force: Annotated[bool, typer.Option(help="Sobrescrever mesmo se houver 
             )
     with tempfile.TemporaryDirectory() as tmp:
         release = make_release(Path(tmp) / DEMO_REF, regiao_jundiai=True)
-        result = pipeline.run(replace(s, min_row_ratio=0.0), source_dir=release, referencia=DEMO_REF, force=True)
+        demo_settings = replace(
+            s,
+            min_row_ratio=0.0,
+            regiao_centro="",
+            regiao_raio_km=0.0,
+            regiao_ufs=[],
+            regiao_municipios_ibge=[],
+            somente_ativas=False,
+        )  # a amostra ignora o filtro regional
+        result = pipeline.run(demo_settings, source_dir=release, referencia=DEMO_REF, force=True)
     typer.echo(f"demo carregada: {sum(result.counts.values())} linhas")
     typer.echo("exemplo: CNPJ 11.222.333/0001-81 (matriz), sócio 'JOSE DA SILVA', CNAE 1091102, UF SP")
     typer.echo("leads: 6 empresas fictícias em Jundiaí, Itatiba e Campinas (menu Leads)")
