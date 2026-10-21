@@ -195,3 +195,59 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
         'áàâãäåÁÀÂÃÄÅéèêëÉÈÊËíìîïÍÌÎÏóòôõöÓÒÔÕÖúùûüÚÙÛÜçÇñÑýÿÝ',
         'aaaaaaAAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUcCnNyyY'))
 $$;
+
+-- ---------------------------------------------------------------- leads (prospecção)
+-- Carteira compartilhada pela equipe: um status por CNPJ evita dois vendedores no mesmo lead.
+CREATE TABLE IF NOT EXISTS app.lead (
+    cnpj            char(14)    PRIMARY KEY,
+    status          text        NOT NULL DEFAULT 'novo' CHECK (status IN
+                    ('novo', 'contatado', 'interessado', 'proposta', 'fechado', 'sem_interesse')),
+    responsavel_id  bigint      REFERENCES app.usuario (id) ON DELETE SET NULL,
+    nota            text,       -- última anotação
+    proximo_contato date,
+    criado_em       timestamptz NOT NULL DEFAULT now(),
+    atualizado_em   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS lead_status_idx ON app.lead (status, atualizado_em DESC);
+
+CREATE TABLE IF NOT EXISTS app.lead_evento (
+    id         bigserial PRIMARY KEY,
+    cnpj       char(14)    NOT NULL,
+    usuario_id bigint      REFERENCES app.usuario (id) ON DELETE SET NULL,
+    status     text,
+    nota       text,
+    criado_em  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS lead_evento_cnpj_idx ON app.lead_evento (cnpj, criado_em DESC);
+
+-- Pedidos de não contato (LGPD / boa prática): bloqueiam o CNPJ, o telefone ou o e-mail nas buscas.
+CREATE TABLE IF NOT EXISTS app.nao_contatar (
+    id         bigserial PRIMARY KEY,
+    cnpj       char(14),
+    telefone   text,
+    email      text,
+    motivo     text,
+    usuario_id bigint      REFERENCES app.usuario (id) ON DELETE SET NULL,
+    criado_em  timestamptz NOT NULL DEFAULT now(),
+    CHECK (cnpj IS NOT NULL OR telefone IS NOT NULL OR email IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS nao_contatar_cnpj_idx ON app.nao_contatar (cnpj);
+CREATE INDEX IF NOT EXISTS nao_contatar_tel_idx ON app.nao_contatar (telefone);
+CREATE INDEX IF NOT EXISTS nao_contatar_email_idx ON app.nao_contatar (lower(email));
+
+-- Cache da fonte externa por CNPJ (cnpj_api.external).
+CREATE TABLE IF NOT EXISTS app.cnpj_externo (
+    cnpj      char(14)    PRIMARY KEY,
+    fonte     text        NOT NULL,
+    dados     jsonb       NOT NULL,
+    obtido_em timestamptz NOT NULL
+);
+
+-- Referência das alterações: "AAAA-MM" (carga mensal) ou "ext:AAAA-MM-DD" (fonte externa).
+DO $$
+BEGIN
+    IF (SELECT data_type FROM information_schema.columns
+        WHERE table_schema = 'app' AND table_name = 'alteracao' AND column_name = 'referencia') = 'character' THEN
+        ALTER TABLE app.alteracao ALTER COLUMN referencia TYPE text;
+    END IF;
+END $$;

@@ -12,6 +12,7 @@ import { Login } from "./pages/Login";
 import { Termos } from "./pages/Termos";
 
 // Páginas com mapa, grafo e gráficos são carregadas sob demanda.
+const Leads = lazy(() => import("./pages/Leads").then((m) => ({ default: m.Leads })));
 const Empresa = lazy(() => import("./pages/Empresa").then((m) => ({ default: m.Empresa })));
 const Busca = lazy(() => import("./pages/Busca").then((m) => ({ default: m.Busca })));
 const Grafo = lazy(() => import("./pages/Grafo").then((m) => ({ default: m.Grafo })));
@@ -42,6 +43,7 @@ function Gate() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
+          <Route path="leads" element={<Leads />} />
           <Route path="empresa/:cnpj" element={<Empresa />} />
           <Route path="grafo/:cnpj" element={<Grafo />} />
           <Route path="busca" element={<Busca />} />

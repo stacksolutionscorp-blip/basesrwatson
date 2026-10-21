@@ -172,3 +172,41 @@ export interface Municipio {
   lat: number;
   lng: number;
 }
+
+export type LeadStatus = "novo" | "contatado" | "interessado" | "proposta" | "fechado" | "sem_interesse";
+
+export interface Lead {
+  cnpj: string;
+  cnpj_formatado: string;
+  razao_social: string | null;
+  nome_fantasia: string | null;
+  cnae_principal: { codigo: number | null; descricao: string | null };
+  telefones: { numero: string; celular: boolean; whatsapp: string | null }[];
+  email: string | null;
+  endereco: string | null;
+  bairro: string | null;
+  cep: string | null;
+  municipio: string | null;
+  uf: string | null;
+  distancia_km: number | null;
+  lat: number | null;
+  lng: number | null;
+  porte: string | null;
+  capital_social: string | number | null;
+  idade_anos: number | null;
+  decisores: { nome: string; qualificacao: string | null; tipo: string | null }[];
+  score: number;
+  fatores: { fator: string; pontos: number }[];
+  status: LeadStatus;
+  nota: string | null;
+  proximo_contato: string | null;
+  status_em: string | null;
+  responsavel: string | null;
+}
+
+export interface LeadsConfig {
+  centro: { lat: number; lng: number; nome: string };
+  raio_km: number;
+  segmentos: { id: string; nome: string; consorcio: string; cnaes: { codigo: number; descricao: string | null }[] }[];
+  status: LeadStatus[];
+}

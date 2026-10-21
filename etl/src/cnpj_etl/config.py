@@ -29,6 +29,15 @@ class Settings:
     keep_zips: bool = field(default_factory=lambda: _env("ETL_KEEP_ZIPS", "1") == "1")
     check_interval_hours: float = field(default_factory=lambda: float(_env("ETL_CHECK_INTERVAL_HOURS", "24")))
 
+    # Carga regional (ver cnpj_etl.regiao). Vazio = Brasil inteiro.
+    regiao_centro: str = field(default_factory=lambda: _env("ETL_CENTRO", ""))
+    regiao_raio_km: float = field(default_factory=lambda: float(_env("ETL_RAIO_KM", "0") or 0))
+    regiao_ufs: list[str] = field(default_factory=lambda: [u for u in _env("ETL_UFS", "").split(",") if u.strip()])
+    regiao_municipios_ibge: list[int] = field(
+        default_factory=lambda: [int(m) for m in _env("ETL_MUNICIPIOS_IBGE", "").split(",") if m.strip()]
+    )
+    somente_ativas: bool = field(default_factory=lambda: _env("ETL_SOMENTE_ATIVAS", "0") == "1")
+
     nominatim_url: str = field(default_factory=lambda: _env("NOMINATIM_URL", "http://localhost:8080"))
     nominatim_rps: float = field(default_factory=lambda: float(_env("NOMINATIM_RPS", "1")))
     nominatim_concurrency: int = field(default_factory=lambda: int(_env("NOMINATIM_CONCURRENCY", "1")))

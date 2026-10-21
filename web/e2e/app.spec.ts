@@ -145,3 +145,41 @@ test("sair", async ({ page }) => {
   await page.getByRole("button", { name: "Sair" }).click();
   await expect(page.getByRole("button", { name: "Entrar" })).toBeVisible();
 });
+
+test("leads para consórcio: prospectar, contatar e bloquear", async ({ page }) => {
+  await entrar(page);
+  await page.getByRole("link", { name: "Leads (consórcio)" }).click();
+  await expect(page.getByRole("heading", { name: "Leads para consórcio" })).toBeVisible();
+  // raio padrão a partir de Jundiaí: melhor lead primeiro, com WhatsApp e decisor
+  const primeiro = page.getByTestId("lead").first();
+  await expect(primeiro).toContainText("VALE DO JUNDIAI");
+  await expect(primeiro.getByRole("link", { name: "WhatsApp" })).toHaveAttribute("href", "https://wa.me/5511991112222");
+  await expect(primeiro).toContainText("ANA PAULA RODRIGUES");
+  await shot(page, "13-leads");
+
+  // segmento pesados → só a transportadora
+  await page.getByRole("button", { name: /Pesados e caminhões/ }).click();
+  await expect(page.getByTestId("lead")).toHaveCount(1);
+  await expect(page.getByTestId("lead").first()).toContainText("SERRA DO JAPI LOG");
+
+  // registrar contato: some da prospecção e vai para a carteira
+  const lead = page.getByTestId("lead").first();
+  await lead.getByLabel(/Anotação de/).fill("ligar para o Marcos na segunda");
+  await lead.getByLabel(/Status de/).selectOption("interessado");
+  await expect(page.getByText("Nenhum lead com esses filtros")).toBeVisible();
+  await page.getByRole("tab", { name: "Minha carteira" }).click();
+  await expect(page.getByTestId("lead").first()).toContainText("SERRA DO JAPI LOG");
+  await expect(page.getByTestId("lead").first()).toContainText("Interessado");
+  await shot(page, "14-carteira");
+
+  // não contatar
+  await page.getByRole("tab", { name: "Prospectar" }).click();
+  await page.getByRole("button", { name: "Todos os segmentos" }).click();
+  const clima = page.getByTestId("lead").filter({ hasText: "CLIMA FRIO" });
+  await clima.getByRole("button", { name: "Não contatar" }).click();
+  await page.getByLabel("Motivo").fill("pediu por telefone");
+  await page.getByRole("button", { name: "Confirmar" }).click();
+  await expect(page.getByTestId("lead").filter({ hasText: "CLIMA FRIO" })).toHaveCount(0);
+  await page.getByRole("tab", { name: "Não contatar" }).click();
+  await expect(page.getByText("pediu por telefone").first()).toBeVisible();
+});

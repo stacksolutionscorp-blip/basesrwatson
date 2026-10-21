@@ -5,6 +5,7 @@ import { useAuth } from "../hooks/auth";
 import { api } from "../lib/api";
 
 const ATALHOS = [
+  { to: "/leads", titulo: "Leads para consórcio", texto: "Empresas da região com telefone, WhatsApp, e-mail e decisores, ordenadas pelo potencial." },
   { to: "/busca", titulo: "Busca avançada", texto: "CNAE, região, raio em km, porte, capital, abertura e Simples/MEI — com mapa e exportação." },
   { to: "/socios", titulo: "Sócios", texto: "Encontre uma pessoa ou empresa sócia e todas as empresas ligadas a ela." },
   { to: "/lote", titulo: "Consulta em lote", texto: "Cole até centenas de CNPJs e baixe o resultado em planilha." },

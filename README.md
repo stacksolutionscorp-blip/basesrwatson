@@ -161,6 +161,9 @@ encontrados são retentados após 90 dias.
 | `ETL_MIN_ROW_RATIO` | `0.9` | proporção mínima de linhas para permitir o swap |
 | `ETL_KEEP_ZIPS` | `1` | `0` apaga os ZIPs após carga bem-sucedida |
 | `ETL_CHECK_INTERVAL_HOURS` | `24` | intervalo do `schedule` |
+| `ETL_CENTRO` + `ETL_RAIO_KM` | vazio | carga regional: só estabelecimentos de municípios cujo centro está no raio (ex.: `-23.1857,-46.8978` e `60` = Jundiaí) |
+| `ETL_UFS` / `ETL_MUNICIPIOS_IBGE` | vazio | alternativa: UFs ou códigos IBGE separados por vírgula |
+| `ETL_SOMENTE_ATIVAS` | `0` | `1` carrega só estabelecimentos ativos |
 | `NOMINATIM_URL` | `http://nominatim:8080` | geocodificador |
 | `NOMINATIM_RPS` / `NOMINATIM_CONCURRENCY` | `1` / `1` | limite de requisições |
 | `NOMINATIM_USER_AGENT` | `cnpj-intel-etl/0.1` | identifique-se (exigido pelo OSM) |
@@ -204,6 +207,48 @@ busca para que ninguém localize uma pessoa digitando o CPF completo.
 
 **Mapas**: os tiles vêm dos servidores públicos do OpenStreetMap, adequados a uso moderado. Com muito
 tráfego, use um provedor de tiles (ou servidor próprio) com `VITE_TILE_URL` e `TILE_HOSTS` no `.env`.
+
+## Leads para consórcio
+
+Menu **Leads (consórcio)**. Encontra empresas **ativas** da região (padrão: 30 km de Jundiaí/SP) com
+perfil de comprador de consórcio e já entrega o contato e quem decide.
+
+- **Segmentos**: pesados (caminhões, ônibus e máquinas: transporte, construção, terraplenagem),
+  veículos e frota de serviço, imóveis (sede própria/investimento) e agro (tratores, implementos).
+  "Todos os segmentos" ordena qualquer empresa pelo potencial.
+- **Score 0–100**, explicado em *Detalhes*: aderência do CNAE ao segmento, porte, capital social,
+  tempo de empresa, celular/WhatsApp, e-mail e proximidade.
+- **Contato**: telefones e e-mail **declarados pela empresa à Receita**, com link de ligação e
+  WhatsApp para celulares, e **decisores** (sócio-administrador, administrador, diretor, presidente…;
+  no empresário individual, o titular).
+- **Carteira**: status (novo → contatado → interessado → proposta → fechado / sem interesse),
+  anotação, próximo contato e histórico; leads já trabalhados somem da prospecção.
+- **Não contatar**: quem pedir para não ser procurado sai de todas as buscas e exportações.
+- **Exportação** em Excel ou CSV para importar no CRM ou discador.
+- API: `/v1/leads/config`, `/busca`, `/export`, `/carteira`, `PUT /v1/leads/{cnpj}`, `/nao-contatar`.
+
+**Limites (LGPD/Anatel)**: a ferramenta usa apenas dados públicos da Receita, para contato B2B com a
+empresa. Ela não busca telefone pessoal de sócios em outras fontes. Para isso, contrate um provedor de
+dados licenciado. Em telemarketing ativo, use o prefixo **0303** e respeite os pedidos de não contato.
+
+### Carga da região de Jundiaí
+
+A busca de leads não precisa da base do Brasil inteiro. No `.env` do servidor:
+
+```bash
+ETL_CENTRO=-23.1857,-46.8978   # Jundiaí/SP
+ETL_RAIO_KM=60                 # municípios cujo centro está a até 60 km
+ETL_SOMENTE_ATIVAS=1           # só empresas ativas
+```
+
+```bash
+docker compose up -d                   # o container etl carrega os municípios e importa o mês atual
+docker compose logs -f etl             # acompanhe; `docker compose exec etl cnpj-etl status`
+```
+
+O download continua sendo o mês completo (~7 GB), mas o banco fica com uma fração do tamanho
+(alguns GB) e a carga termina em minutos. O filtro vale para todas as cargas mensais seguintes.
+Para ampliar a região, mude o raio e rode `docker compose exec etl cnpj-etl run --force`.
 
 ## Produção
 
@@ -331,6 +376,7 @@ recebido no cadastro) e responda 2xx. Falhas são retentadas em 1 min, 5 min, 30
 ```python
 import hashlib, hmac
 
+
 def assinatura_valida(corpo: bytes, header: str, segredo: str) -> bool:
     esperado = "sha256=" + hmac.new(segredo.encode(), corpo, hashlib.sha256).hexdigest()
     return hmac.compare_digest(esperado, header)
@@ -372,6 +418,8 @@ centroide do município; a geocodificação fina (Nominatim) elimina esse caso.
 | `API_TRUST_PROXY` | `0` | `1` atrás de proxy reverso (IP real no log de acesso) |
 | `API_WEBHOOK_ALLOW_PRIVATE` | `0` | `1` libera webhooks para rede interna (só desenvolvimento) |
 | `API_GRAPH_MAX_NODES` | `300` | limite de nós do grafo |
+| `LEADS_CENTRO` / `LEADS_CENTRO_NOME` | Jundiaí/SP | ponto de partida padrão da busca de leads |
+| `LEADS_RAIO_KM` | `30` | raio padrão da busca de leads |
 
 Em produção, coloque a API atrás de um proxy com HTTPS (nginx, Caddy, Traefik) e defina
 `API_CORS_ORIGINS` com os domínios do seu front.

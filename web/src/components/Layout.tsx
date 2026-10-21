@@ -6,6 +6,7 @@ import { cx } from "./ui";
 
 const NAV = [
   { to: "/", label: "Início", end: true },
+  { to: "/leads", label: "Leads (consórcio)" },
   { to: "/busca", label: "Busca avançada" },
   { to: "/socios", label: "Sócios" },
   { to: "/lote", label: "Consulta em lote" },

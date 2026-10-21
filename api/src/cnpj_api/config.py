@@ -29,6 +29,10 @@ class Settings:
     login_max_tentativas: int = field(default_factory=lambda: int(_env("API_LOGIN_MAX_TENTATIVAS", "10")))
     # Prefixo público quando a API fica atrás do proxy (Caddy serve em /api): ajusta /docs e o OpenAPI.
     root_path: str = field(default_factory=lambda: _env("API_ROOT_PATH", ""))
+    # Prospecção: ponto de partida padrão da busca de leads (Jundiaí/SP).
+    leads_centro: str = field(default_factory=lambda: _env("LEADS_CENTRO", "-23.1857,-46.8978"))
+    leads_centro_nome: str = field(default_factory=lambda: _env("LEADS_CENTRO_NOME", "Jundiaí/SP"))
+    leads_raio_km: float = field(default_factory=lambda: float(_env("LEADS_RAIO_KM", "30")))
     graph_max_nodes: int = field(default_factory=lambda: int(_env("API_GRAPH_MAX_NODES", "300")))
 
 

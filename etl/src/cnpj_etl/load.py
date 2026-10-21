@@ -1,5 +1,6 @@
 """Carga dos ZIPs em rf_new via COPY."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import polars as pl
@@ -61,8 +62,13 @@ def load_dataset(
     paths: list[Path],
     batch_bytes: int,
     schema: str = NEW,
+    keep: Callable[[pl.DataFrame], pl.DataFrame] | None = None,
 ) -> int:
-    """Carrega todos os arquivos de um dataset numa única transação (COPY FREEZE)."""
+    """Carrega todos os arquivos de um dataset numa única transação (COPY FREEZE).
+
+    ``keep`` filtra cada lote já transformado (carga regional); as linhas descartadas não contam
+    como rejeitadas.
+    """
     fn = transform.transform_for(ds.name)
     geo = GeoLookup(conn) if ds.name == "estabelecimento" else None
     total = 0
@@ -72,6 +78,8 @@ def load_dataset(
             with runlog.step("load", path.name) as st:
                 for batch in iter_batches(path, ds.columns, batch_bytes):
                     df, rejected = fn(batch.df)
+                    if keep is not None:
+                        df = keep(df)
                     if geo is not None:
                         df = geo.apply(df).select(transform.ESTABELECIMENTO_COLUMNS)
                     copy_df(conn, schema, ds.name, df)

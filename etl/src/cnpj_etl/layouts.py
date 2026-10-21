@@ -91,8 +91,9 @@ DATASETS: list[Dataset] = [
     Dataset("natureza_juridica", re.compile(r"^Naturezas\.zip$", re.IGNORECASE), AUX, False),
     Dataset("pais", re.compile(r"^Paises\.zip$", re.IGNORECASE), AUX, False),
     Dataset("qualificacao", re.compile(r"^Qualificacoes\.zip$", re.IGNORECASE), AUX, False),
-    Dataset("empresa", re.compile(r"^Empresas\d+\.zip$", re.IGNORECASE), EMPRESAS, True),
+    # estabelecimentos antes das empresas: na carga regional, eles definem quais raízes de CNPJ ficam
     Dataset("estabelecimento", re.compile(r"^Estabelecimentos\d+\.zip$", re.IGNORECASE), ESTABELECIMENTOS, True),
+    Dataset("empresa", re.compile(r"^Empresas\d+\.zip$", re.IGNORECASE), EMPRESAS, True),
     Dataset("socio", re.compile(r"^Socios\d+\.zip$", re.IGNORECASE), SOCIOS, True),
     Dataset("simples", re.compile(r"^Simples\.zip$", re.IGNORECASE), SIMPLES, False),
 ]

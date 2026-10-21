@@ -102,6 +102,9 @@ DEMO_REF = "demo"
 _DEMO_MUNICIPIOS = [  # usados se geo.municipio_ibge estiver vazia (ex.: sem internet)
     (7107, 3550308, "São Paulo", "SP", -23.5329, -46.6395),
     (6001, 3304557, "Rio de Janeiro", "RJ", -22.9129, -43.2003),
+    (6619, 3525904, "Jundiaí", "SP", -23.1852, -46.8974),
+    (6569, 3523404, "Itatiba", "SP", -23.0035, -46.8464),
+    (6291, 3509502, "Campinas", "SP", -22.9053, -47.0659),
 ]
 
 
@@ -120,10 +123,11 @@ def demo(force: Annotated[bool, typer.Option(help="Sobrescrever mesmo se houver 
                 _DEMO_MUNICIPIOS,
             )
     with tempfile.TemporaryDirectory() as tmp:
-        release = make_release(Path(tmp) / DEMO_REF)
+        release = make_release(Path(tmp) / DEMO_REF, regiao_jundiai=True)
         result = pipeline.run(replace(s, min_row_ratio=0.0), source_dir=release, referencia=DEMO_REF, force=True)
     typer.echo(f"demo carregada: {sum(result.counts.values())} linhas")
     typer.echo("exemplo: CNPJ 11.222.333/0001-81 (matriz), sócio 'JOSE DA SILVA', CNAE 1091102, UF SP")
+    typer.echo("leads: 6 empresas fictícias em Jundiaí, Itatiba e Campinas (menu Leads)")
 
 
 @app.command()

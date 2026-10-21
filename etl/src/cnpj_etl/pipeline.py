@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+import polars as pl
 
-from cnpj_etl import diff, discover, download, finalize, load
+from cnpj_etl import diff, discover, download, finalize, load, regiao
 from cnpj_etl.config import Settings
 from cnpj_etl.db import NEW, connect, init_db
 from cnpj_etl.layouts import DATASETS, dataset_for
@@ -64,11 +65,39 @@ def run(
                     st.linhas = len(paths)
 
             groups = _group(paths)
+            area = regiao.build(
+                conn,
+                settings.regiao_centro or None,
+                settings.regiao_raio_km or None,
+                settings.regiao_ufs,
+                settings.regiao_municipios_ibge,
+                settings.somente_ativas,
+            )
+            log.info("carga: %s", area.describe())
             load.create_schema(conn)
             counts: dict[str, int] = {}
             batch_bytes = settings.batch_mb * 1024 * 1024
-            for ds in DATASETS:  # auxiliares primeiro, depois as tabelas grandes
-                counts[ds.name] = load.load_dataset(conn, runlog, ds, groups[ds.name], batch_bytes)
+            raizes: list[pl.Series] = []
+
+            def keep_estab(df: pl.DataFrame) -> pl.DataFrame:
+                df = area.filter_estabelecimentos(df)
+                raizes.append(df["cnpj_basico"].unique())
+                return df
+
+            def keep_by_raiz(df: pl.DataFrame) -> pl.DataFrame:
+                return df.filter(pl.col("cnpj_basico").is_in(mantidas))
+
+            mantidas = pl.Series(dtype=pl.String)
+            for ds in DATASETS:  # auxiliares, estabelecimentos, depois as tabelas ligadas a eles
+                keep = None
+                if area.ativa and ds.name == "estabelecimento":
+                    keep = keep_estab
+                elif area.ativa and ds.name in ("empresa", "socio", "simples"):
+                    keep = keep_by_raiz
+                counts[ds.name] = load.load_dataset(conn, runlog, ds, groups[ds.name], batch_bytes, keep=keep)
+                if ds.name == "estabelecimento" and area.ativa:
+                    mantidas = pl.concat(raizes).unique() if raizes else mantidas
+                    raizes.clear()
 
             with runlog.step("keys") as st:
                 for table in finalize.PRIMARY_KEYS:

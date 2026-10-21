@@ -17,7 +17,7 @@ from redis import asyncio as aioredis
 from cnpj_api import users
 from cnpj_api.config import Settings, get_settings
 from cnpj_api.netutil import valid_ip
-from cnpj_api.routes import admin, busca, consulta, conta, conta_web, monitor
+from cnpj_api.routes import admin, busca, consulta, conta, conta_web, leads, monitor
 from cnpj_api.runtime import Cache, listen_swaps, live_referencia, make_pool
 
 log = logging.getLogger("cnpj_api")
@@ -75,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
         root_path=settings.root_path,
         openapi_tags=[
+            {"name": "leads", "description": "Prospecção para consórcio: busca com score, decisores, carteira"},
             {"name": "consulta", "description": "Perfil, filiais, sócios, grafo e lote"},
             {"name": "busca", "description": "Filtros combinados, raio geográfico e exportação"},
             {"name": "monitoramento", "description": "CNPJs acompanhados, histórico e webhooks"},
@@ -161,7 +162,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log.error("banco indisponível: %s", exc)
         return JSONResponse({"detail": "banco de dados indisponível; tente novamente"}, status_code=503)
 
-    for r in (conta_web.router, consulta.router, busca.router, monitor.router, conta.router, admin.router):
+    for r in (
+        conta_web.router,
+        consulta.router,
+        leads.router,
+        busca.router,
+        monitor.router,
+        conta.router,
+        admin.router,
+    ):
         app.include_router(r)
     return app
 
